@@ -51,7 +51,7 @@
  */
 
 // Прод-домен (когда настроите api.aeroopt.app в Cloudflare Workers):
-const API_BASE = "https://api.aeroopt.app";
+const API_BASE = "https://aeroopt-license-server.tgmg.workers.dev";
 // На время разработки можно переключить на workers.dev:
 // const API_BASE = "https://aeroopt-license-server.aeroopt.workers.dev";
 
