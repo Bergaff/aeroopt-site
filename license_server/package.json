@@ -1,0 +1,24 @@
+{
+  "name": "aeroopt-license-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "License server for AeroOpt (Cloudflare Workers + D1)",
+  "main": "src/worker.js",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail",
+    "db:create": "wrangler d1 create aeroopt-licenses",
+    "db:migrate": "wrangler d1 execute aeroopt-licenses --file=schema.sql",
+    "db:seed": "wrangler d1 execute aeroopt-licenses --file=seed.sql",
+    "db:list": "wrangler d1 execute aeroopt-licenses --command='SELECT * FROM licenses ORDER BY issued_at DESC LIMIT 20'",
+    "db:reset": "wrangler d1 execute aeroopt-licenses --file=schema.sql --command='DELETE FROM licenses'",
+    "secrets:set": "wrangler secret put"
+  },
+  "devDependencies": {
+    "wrangler": "^3.78.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

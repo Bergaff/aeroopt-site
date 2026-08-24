@@ -1,0 +1,54 @@
+name = "aeroopt-license-server"
+main = "src/worker.js"
+compatibility_date = "2024-09-01"
+
+# === D1 (license database) =============================================
+# ШАГ 1: создать D1 базу:
+#   npx wrangler d1 create aeroopt-licenses
+# В ответ получите database_id (UUID вида xxxxx-xxxxx-xxxx-xxxxx).
+# Вставьте его ниже вместо "REPLACE_AFTER_D1_CREATE".
+#
+# ШАГ 2: применить схему:
+#   npx wrangler d1 execute aeroopt-licenses --file=schema.sql
+#   npx wrangler d1 execute aeroopt-licenses --file=seed.sql    # опц. тестовые ключи
+[[d1_databases]]
+binding = "DB"
+database_name = "aeroopt-licenses"
+database_id = "REPLACE_AFTER_D1_CREATE"
+
+# === Secrets (задаются командами wrangler) ============================
+# ШАГ 3: задать секреты через:
+#   npx wrangler secret put LICENSE_HMAC_KEY      # 64 hex символа (openssl rand -hex 32)
+#   npx wrangler secret put ADMIN_TOKEN           # 64 hex символа (для админки)
+#   npx wrangler secret put RESEND_API_KEY        # опц. — для email
+#   npx wrangler secret put RESEND_FROM           # опц. — "AeroOpt <noreply@aeroopt.app>"
+#   npx wrangler secret put STRIPE_WEBHOOK_SECRET # опц. — когда подключите Stripe
+#
+# LICENSE_HMAC_KEY должен совпадать с AEROOPT_LICENSE_HMAC_KEY в .spec
+# PyInstaller-билда (см. fixes/BUILD.md).
+
+# === Custom domain (опционально) =======================================
+# После `wrangler deploy` воркер будет доступен на:
+#   https://aeroopt-license-server.<your-subdomain>.workers.dev
+# Для кастомного домена api.aeroopt.app раскомментируйте блок ниже
+# (предварительно купите домен aeroopt.app и добавьте его в Cloudflare).
+#
+# routes = [
+#   { pattern = "api.aeroopt.app/*", custom_domain = true }
+# ]
+
+# === Environment variables (не секретные) =============================
+[vars]
+APP_VERSION = "4.1.0"
+ADMIN_AUDIT_LOG_RETENTION_DAYS = "365"  # хранить audit log год
+
+# === KV для anti-abuse (опционально, можно не создавать) ==============
+# Если хотите включить rate-limit по IP, создайте KV:
+#   npx wrangler kv:namespace create "RATE_LIMIT"
+#   npx wrangler kv:namespace create "RATE_LIMIT" --preview
+# И раскомментируйте:
+#
+# [[kv_namespaces]]
+# binding = "RATE_LIMIT"
+# id = "REPLACE_AFTER_KV_CREATE"
+# preview_id = "REPLACE_AFTER_KV_PREVIEW"
