@@ -34,13 +34,22 @@ const ALLOWED_ORIGINS = [
     'https://aeroopt.app',
     'https://www.aeroopt.app',
     'https://aeroopt-site.pages.dev',     // dev-домен Cloudflare Pages
-    'http://localhost:8788',              // wrangler dev (для разработки)
+    // Локальная разработка (file://, python -m http.server, vite, etc.)
+    'http://localhost:8000',
+    'http://localhost:8080',
+    'http://localhost:8788',              // wrangler dev
+    'http://127.0.0.1:8000',
+    'http://127.0.0.1:8080',
     'http://127.0.0.1:8788',
+    'null',                                // file:// (Origin: null)
 ];
 
 function corsHeadersFor(request) {
     const origin = request.headers.get('Origin') || '';
-    const allowOrigin = ALLOWED_ORIGINS.includes(origin) ? origin : '*';
+    // null — это file:// или запрос без Origin (из самого приложения)
+    const allowOrigin = (ALLOWED_ORIGINS.includes(origin) || origin === 'null')
+        ? origin
+        : '*';
     return {
         'Access-Control-Allow-Origin': allowOrigin,
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',

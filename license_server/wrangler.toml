@@ -14,7 +14,7 @@ compatibility_date = "2024-09-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "aeroopt-licenses"
-database_id = "7e7359a3-b7b1-44f0-a364-a79db69d3386"
+database_id = "REPLACE_AFTER_D1_CREATE"
 
 # === Secrets (задаются командами wrangler) ============================
 # ШАГ 3: задать секреты через:
