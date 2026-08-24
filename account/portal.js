@@ -50,7 +50,10 @@
  * конкретной машины (показываем в таблице).
  */
 
-const API_BASE = "https://aeroopt-license-server.aeroopt.workers.dev";
+// Прод-домен (когда настроите api.aeroopt.app в Cloudflare Workers):
+const API_BASE = "https://api.aeroopt.app";
+// На время разработки можно переключить на workers.dev:
+// const API_BASE = "https://aeroopt-license-server.aeroopt.workers.dev";
 
 // =====================================================================
 // Storage: license_key в localStorage (для удобства, не критично)
@@ -196,8 +199,29 @@ function renderDashboard(key, data) {
     const lastSeen = activations
         .map(a => a.last_seen || 0)
         .reduce((m, x) => Math.max(m, x), 0);
-    document.getElementById("d-last-seen").textContent =
-        lastSeen ? formatDate(lastSeen) : "никогда";
+
+    // === Grace period: показываем сколько дней осталось офлайн-режима ===
+    // Клиент присылает last_heartbeat при каждом activate/heartbeat.
+    // У нас в /v1/account_info такого поля нет — отображаем по last_seen
+    // (примерно совпадает с реальным heartbeat).
+    const now = Math.floor(Date.now() / 1000);
+    const GRACE_DAYS = 30;
+    const daysSinceSeen = lastSeen ? Math.floor((now - lastSeen) / 86400) : 999;
+    const daysLeft = Math.max(0, GRACE_DAYS - daysSinceSeen);
+    const lastSeenStr = lastSeen
+        ? formatDate(lastSeen) + ` (офлайн-режим: осталось ~${daysLeft} дн.)`
+        : "никогда";
+    document.getElementById("d-last-seen").textContent = lastSeenStr;
+
+    // Если отозван — показываем баннер
+    if (lic.revoked) {
+        const banner = document.createElement("p");
+        banner.className = "note";
+        banner.style.color = "var(--accent)";
+        banner.style.fontWeight = "600";
+        banner.textContent = "⛔ Эта лицензия отозвана. Свяжитесь с support@aeroopt.app.";
+        document.querySelector("#dashboard-section h2").after(banner);
+    }
 
     // Machines
     const tbody = document.getElementById("machines-tbody");
