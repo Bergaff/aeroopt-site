@@ -1,6 +1,7 @@
 name = "aeroopt-license-server"
 main = "src/worker.js"
 compatibility_date = "2024-09-01"
+compatibility_flags = ["nodejs_compat"]
 
 # === D1 (license database) =============================================
 # ШАГ 1: создать D1 базу:
