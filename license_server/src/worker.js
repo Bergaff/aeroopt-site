@@ -555,30 +555,43 @@ async function handleAccountInfo(req, env) {
     const body = await req.json().catch(() => null);
     if (!body?.license_key) return err('bad_request', 'license_key required');
     const license = await env.DB.prepare(
-        'SELECT license_key, email, product, expires_at, max_hwid_count, ' +
-        'revoked_at, note FROM licenses WHERE license_key = ?'
+        'SELECT license_key, customer_email, plan, max_machines, note, revoked_at ' +
+        'FROM licenses WHERE license_key = ?'
     ).bind(body.license_key).first();
     if (!license) return err('not_found', 'License not found', 404);
     const activations = await env.DB.prepare(
-        'SELECT hwid, hostname, os, app_version, first_seen, last_seen, is_active ' +
-        'FROM activations WHERE license_key = ? ORDER BY last_seen DESC'
+        'SELECT hwid, machine_name, os, first_seen_at, last_seen_at, revoked_at ' +
+        'FROM activations WHERE license_key = ? ORDER BY last_seen_at DESC'
     ).bind(body.license_key).all();
     const heartbeats = await env.DB.prepare(
-        'SELECT ts, app_version, runs_count FROM heartbeats ' +
-        'WHERE license_key = ? AND ts > ? ORDER BY ts DESC LIMIT 50'
-    ).bind(body.license_key, Math.floor(Date.now() / 1000) - 30 * 86400).all();
+        'SELECT ts, app_version FROM heartbeats ' +
+        'WHERE license_key = ? ORDER BY ts DESC LIMIT 50'
+    ).bind(body.license_key).all();
+    // Превращаем activations в формат, который ожидает UI
+    const activationList = (activations.results || []).map(a => ({
+        hwid: a.hwid,
+        hostname: a.machine_name,
+        os: a.os,
+        first_seen: a.first_seen_at,
+        last_seen: a.last_seen_at,
+        is_active: !a.revoked_at,
+    }));
     return ok({
         license: {
             key: license.license_key,
-            email: license.email,
-            product: license.product,
-            expires_at: license.expires_at,
-            hwid_max: license.max_hwid_count,
+            email: license.customer_email,
+            product: license.plan,
+            expires_at: null,  // не используется пока
+            hwid_max: license.max_machines,
             revoked: !!license.revoked_at,
             note: license.note,
         },
-        activations: activations.results,
-        heartbeats: heartbeats.results,
+        activations: activationList,
+        heartbeats: (heartbeats.results || []).map(h => ({
+            ts: h.ts,
+            app_version: h.app_version,
+            runs_count: 0,
+        })),
     });
 }
 // Все admin endpoint'ы требуют заголовок X-Admin-Token с правильным
