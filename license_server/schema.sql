@@ -11,18 +11,22 @@
 --   (операции CREATE TABLE IF NOT EXISTS и ALTER безопасно повторяются)
 -- ============================================================
 
--- License keys (выдаются Stripe webhook'ом после оплаты)
+-- License keys
+-- Прод-D1 (aeroopt-licenses) уже создана с колонками:
+--   license_key, plan, max_machines, customer_email, note,
+--   revoked_at, revoked_reason, created_at, updated_at, email
+-- CREATE ниже — только для новой пустой базы. IF NOT EXISTS не меняет живую таблицу.
 CREATE TABLE IF NOT EXISTS licenses (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    license_key     TEXT    NOT NULL UNIQUE,        -- "AERO-XXXX-XXXX-XXXX-XXXX"
-    email           TEXT    NOT NULL,                -- email покупателя
-    product         TEXT    NOT NULL DEFAULT 'personal',  -- personal|pro|edu|trial
-    issued_at       INTEGER NOT NULL,                -- unix seconds
-    expires_at      INTEGER,                         -- NULL = бессрочно
-    max_hwid_count  INTEGER NOT NULL DEFAULT 2,      -- лимит машин
-    note            TEXT,                            -- комментарий (для внутреннего учёта)
-    revoked_at      INTEGER,                         -- NULL = активен; иначе время отзыва
-    revoked_reason  TEXT                             -- причина отзыва
+    license_key     TEXT    PRIMARY KEY,             -- "AERO-XXXX-XXXX-XXXX-XXXX"
+    plan            TEXT    NOT NULL,                -- personal|pro|edu|trial
+    max_machines    INTEGER NOT NULL DEFAULT 2,
+    customer_email  TEXT,
+    note            TEXT,
+    revoked_at      TEXT,
+    revoked_reason  TEXT,
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+    email           TEXT
 );
 
 -- Привязка к HWID (история активаций)
