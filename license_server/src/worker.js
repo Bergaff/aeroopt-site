@@ -517,11 +517,11 @@ async function handleStripeWebhook(req, env) {
         if (email) {
             licenseKey = genLicenseKey();
             await env.DB.prepare(
-                'INSERT INTO licenses (license_key, email, product, issued_at, max_hwid_count) ' +
+                'INSERT INTO licenses (license_key, plan, max_machines, customer_email, email) ' +
                 'VALUES (?, ?, ?, ?, ?)'
-            ).bind(licenseKey, email, product,
-                   Math.floor(Date.now() / 1000),
-                   product === 'pro' ? 3 : 2).run();
+            ).bind(licenseKey, product,
+                   product === 'pro' ? 3 : 2,
+                   email, email).run();
             // TODO: отправить email с ключом (через Resend / SES / Cloudflare Email).
             // Cloudflare Email Workers + SendGrid/Resend — самый простой вариант.
             console.log(`[license] issued ${licenseKey} for ${email} (${product})`);
@@ -599,22 +599,22 @@ async function handleAccountInfo(req, env) {
 // Все действия пишутся в admin_audit_log.
 
 async function adminCheck(req, env) {
-    const token = req.headers.get('X-Admin-Token');
+    const token = (req.headers.get('X-Admin-Token') || '').trim();
     if (!token) {
         return { ok: false, error: err('no_admin_token', 'Missing X-Admin-Token header', 401) };
     }
-    // timingSafeEqual для постоянной длины сравнения
-    if (!env.ADMIN_TOKEN) {
+    const expected = String(env.ADMIN_TOKEN || '').trim();
+    if (!expected) {
         return { ok: false, error: err('misconfigured', 'ADMIN_TOKEN not set in wrangler secrets', 500) };
     }
-    const a = new TextEncoder().encode(token);
-    const b = new TextEncoder().encode(env.ADMIN_TOKEN);
+    const a = Buffer.from(token, 'utf8');
+    const b = Buffer.from(expected, 'utf8');
     if (a.length !== b.length) {
         return { ok: false, error: err('bad_admin_token', 'Invalid admin token', 401) };
     }
     let valid = false;
     try {
-        valid = timingSafeEqual(Buffer.from(a), Buffer.from(b));
+        valid = timingSafeEqual(a, b);
     } catch { valid = false; }
     if (!valid) {
         return { ok: false, error: err('bad_admin_token', 'Invalid admin token', 401) };
@@ -670,9 +670,9 @@ async function handleAdminIssue(req, env) {
     try {
         await env.DB.prepare(
             'INSERT INTO licenses ' +
-            '(license_key, email, product, issued_at, expires_at, max_hwid_count, note) ' +
-            'VALUES (?, ?, ?, ?, ?, ?, ?)'
-        ).bind(licenseKey, email, product, now, expires, machines, note || null).run();
+            '(license_key, plan, max_machines, customer_email, email, note) ' +
+            'VALUES (?, ?, ?, ?, ?, ?)'
+        ).bind(licenseKey, product, machines, email, email, note || null).run();
     } catch (e) {
         return err('db_error', `DB error: ${e.message}`, 500);
     }
@@ -733,6 +733,7 @@ ${licenseKey}
         license_key: licenseKey,
         email,
         product,
+        max_machines: machines,
         max_mwid_count: machines,
         expires_at: expires,
         note: note || null,
@@ -758,29 +759,33 @@ async function handleAdminRevoke(req, env) {
     const { license_key, reason } = body;
     if (!license_key) return err('bad_request', 'license_key required');
     const ip = req.headers.get('CF-Connecting-IP') || '0.0.0.0';
-    const now = Math.floor(Date.now() / 1000);
+    const nowIso = new Date().toISOString().slice(0, 19).replace('T', ' ');
     const result = await env.DB.prepare(
-        'UPDATE licenses SET revoked_at = ?, revoked_reason = ? ' +
+        'UPDATE licenses SET revoked_at = ?, revoked_reason = ?, updated_at = datetime(\'now\') ' +
         'WHERE license_key = ? AND revoked_at IS NULL'
-    ).bind(now, reason || null, license_key).run();
+    ).bind(nowIso, reason || null, license_key).run();
     if (result.meta.changes === 0) {
-        // Возможно, ключ уже отозван или не существует
         const existing = await env.DB.prepare(
             'SELECT revoked_at FROM licenses WHERE license_key = ?'
         ).bind(license_key).first();
         if (!existing) return err('not_found', 'License key not found', 404);
         if (existing.revoked_at) {
-            return err('already_revoked',
-                `Already revoked at ${new Date(existing.revoked_at * 1000).toISOString()}`,
-                409);
+            return err('already_revoked', `Already revoked at ${existing.revoked_at}`, 409);
         }
     }
-    // Также деактивируем все активации этого ключа
-    await env.DB.prepare(
-        'UPDATE activations SET is_active = 0 WHERE license_key = ?'
-    ).bind(license_key).run();
+    try {
+        await env.DB.prepare(
+            'UPDATE activations SET revoked_at = datetime(\'now\') WHERE license_key = ?'
+        ).bind(license_key).run();
+    } catch {
+        try {
+            await env.DB.prepare(
+                'UPDATE activations SET is_active = 0 WHERE license_key = ?'
+            ).bind(license_key).run();
+        } catch { /* нет таблицы/колонки — не блокируем отзыв ключа */ }
+    }
     await adminLog(env, 'revoke', license_key, ip, { reason });
-    return ok({ revoked_at: now, reason: reason || null });
+    return ok({ revoked_at: nowIso, reason: reason || null });
 }
 
 /**
@@ -798,7 +803,7 @@ async function handleAdminSetNote(req, env) {
     if (!license_key) return err('bad_request', 'license_key required');
     const ip = req.headers.get('CF-Connecting-IP') || '0.0.0.0';
     const result = await env.DB.prepare(
-        'UPDATE licenses SET note = ? WHERE license_key = ?'
+        'UPDATE licenses SET note = ?, updated_at = datetime(\'now\') WHERE license_key = ?'
     ).bind(note || null, license_key).run();
     if (result.meta.changes === 0) {
         return err('not_found', 'License key not found', 404);
@@ -822,23 +827,22 @@ async function handleAdminList(req, env) {
     const limit = Math.min(parseInt(url.searchParams.get('limit') || '100'), 500);
     const offset = parseInt(url.searchParams.get('offset') || '0');
 
-    let sql = 'SELECT license_key, email, product, issued_at, expires_at, ' +
-              'max_hwid_count, note, revoked_at, revoked_reason FROM licenses WHERE 1=1';
+    let sql = 'SELECT * FROM licenses WHERE 1=1';
     const args = [];
     if (product) {
-        sql += ' AND product = ?';
+        sql += ' AND plan = ?';
         args.push(product);
     }
     if (activeOnly) {
         sql += ' AND revoked_at IS NULL';
     }
-    sql += ' ORDER BY issued_at DESC LIMIT ? OFFSET ?';
+    sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
     args.push(limit, offset);
 
     let countSql = 'SELECT COUNT(*) as n FROM licenses WHERE 1=1';
     const countArgs = [];
     if (product) {
-        countSql += ' AND product = ?';
+        countSql += ' AND plan = ?';
         countArgs.push(product);
     }
     if (activeOnly) {
@@ -846,26 +850,22 @@ async function handleAdminList(req, env) {
     }
     const count = await env.DB.prepare(countSql).bind(...countArgs).first();
 
-    // Считаем активации по каждому ключу
     const rows = await env.DB.prepare(sql).bind(...args).all();
     const result = [];
     for (const r of rows.results) {
-        const act = await env.DB.prepare(
-            'SELECT COUNT(*) as n FROM activations ' +
-            'WHERE license_key = ? AND is_active = 1'
-        ).bind(r.license_key).first();
+        const n = normalizeLicense(r);
         result.push({
-            license_key: r.license_key,
-            email: r.email,
-            product: r.product,
-            issued_at: r.issued_at,
-            expires_at: r.expires_at,
-            max_machines: r.max_hwid_count,
-            note: r.note,
-            revoked_at: r.revoked_at,
-            revoked_reason: r.revoked_reason,
-            active_machines: act.n,
-            is_active: !r.revoked_at,
+            license_key: n.license_key,
+            email: n.email,
+            product: n.product,
+            issued_at: n.issued_at,
+            expires_at: n.expires_at,
+            max_machines: n.max_machines,
+            note: n.note,
+            revoked_at: n.revoked_at,
+            revoked_reason: n.revoked_reason,
+            active_machines: await countActiveMachines(env, n.license_key),
+            is_active: !n.revoked_at,
         });
     }
     return ok({
@@ -888,24 +888,40 @@ async function handleAdminInspect(req, env) {
     const url = new URL(req.url);
     const licenseKey = url.searchParams.get('license_key');
     if (!licenseKey) return err('bad_request', 'license_key query param required');
-    const license = await env.DB.prepare(
+    const row = await env.DB.prepare(
         'SELECT * FROM licenses WHERE license_key = ?'
     ).bind(licenseKey).first();
-    if (!license) return err('not_found', 'License not found', 404);
-    const activations = await env.DB.prepare(
-        'SELECT hwid, hostname, os, app_version, first_seen, last_seen, is_active ' +
-        'FROM activations WHERE license_key = ? ORDER BY last_seen DESC'
-    ).bind(licenseKey).all();
-    const heartbeats = await env.DB.prepare(
-        'SELECT ts, app_version, runs_count FROM heartbeats ' +
-        'WHERE license_key = ? ORDER BY ts DESC LIMIT 100'
-    ).bind(licenseKey).all();
-    const audit = await env.DB.prepare(
-        'SELECT action, admin_ip, payload, ts FROM admin_audit_log ' +
-        'WHERE license_key = ? ORDER BY ts DESC LIMIT 50'
-    ).bind(licenseKey).all();
+    if (!row) return err('not_found', 'License not found', 404);
+    let activations = { results: [] };
+    try {
+        activations = await env.DB.prepare(
+            'SELECT hwid, machine_name, os, first_seen_at, last_seen_at, revoked_at ' +
+            'FROM activations WHERE license_key = ? ORDER BY last_seen_at DESC'
+        ).bind(licenseKey).all();
+    } catch {
+        try {
+            activations = await env.DB.prepare(
+                'SELECT hwid, hostname, os, app_version, first_seen, last_seen, is_active ' +
+                'FROM activations WHERE license_key = ? ORDER BY last_seen DESC'
+            ).bind(licenseKey).all();
+        } catch { activations = { results: [] }; }
+    }
+    let heartbeats = { results: [] };
+    try {
+        heartbeats = await env.DB.prepare(
+            'SELECT ts, app_version FROM heartbeats ' +
+            'WHERE license_key = ? ORDER BY ts DESC LIMIT 100'
+        ).bind(licenseKey).all();
+    } catch { heartbeats = { results: [] }; }
+    let audit = { results: [] };
+    try {
+        audit = await env.DB.prepare(
+            'SELECT action, admin_ip, payload, ts FROM admin_audit_log ' +
+            'WHERE license_key = ? ORDER BY ts DESC LIMIT 50'
+        ).bind(licenseKey).all();
+    } catch { audit = { results: [] }; }
     return ok({
-        license,
+        license: normalizeLicense(row),
         activations: activations.results,
         heartbeats: heartbeats.results,
         audit: audit.results,
@@ -929,7 +945,7 @@ async function handleAdminRestore(req, env) {
     if (!license_key) return err('bad_request', 'license_key required');
     const ip = req.headers.get('CF-Connecting-IP') || '0.0.0.0';
     const result = await env.DB.prepare(
-        'UPDATE licenses SET revoked_at = NULL, revoked_reason = NULL ' +
+        'UPDATE licenses SET revoked_at = NULL, revoked_reason = NULL, updated_at = datetime(\'now\') ' +
         'WHERE license_key = ? AND revoked_at IS NOT NULL'
     ).bind(license_key).run();
     if (result.meta.changes === 0) {
