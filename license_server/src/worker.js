@@ -133,6 +133,53 @@ function genLicenseKey() {
     return out;
 }
 
+
+// Живая D1: plan / customer_email / max_machines / created_at (TEXT).
+function toUnix(v) {
+    if (v == null || v === '') return null;
+    if (typeof v === 'number' && Number.isFinite(v)) {
+        return v > 1e12 ? Math.floor(v / 1000) : Math.floor(v);
+    }
+    const str = String(v).trim();
+    if (/^\d+$/.test(str)) {
+        const n = parseInt(str, 10);
+        return n > 1e12 ? Math.floor(n / 1000) : n;
+    }
+    const t = Date.parse(str.includes('T') ? str : str.replace(' ', 'T') + 'Z');
+    return Number.isFinite(t) ? Math.floor(t / 1000) : null;
+}
+
+function normalizeLicense(row) {
+    if (!row) return null;
+    return {
+        ...row,
+        email: row.customer_email || row.email || '',
+        product: row.plan || row.product || '',
+        max_hwid_count: row.max_machines ?? row.max_hwid_count ?? 0,
+        max_machines: row.max_machines ?? row.max_hwid_count ?? 0,
+        issued_at: toUnix(row.created_at || row.issued_at),
+        expires_at: toUnix(row.expires_at),
+    };
+}
+
+async function countActiveMachines(env, licenseKey) {
+    try {
+        const a = await env.DB.prepare(
+            'SELECT COUNT(*) as n FROM activations WHERE license_key = ? AND revoked_at IS NULL'
+        ).bind(licenseKey).first();
+        return a?.n || 0;
+    } catch {
+        try {
+            const a = await env.DB.prepare(
+                'SELECT COUNT(*) as n FROM activations WHERE license_key = ? AND is_active = 1'
+            ).bind(licenseKey).first();
+            return a?.n || 0;
+        } catch {
+            return 0;
+        }
+    }
+}
+
 // SHA-256 от произвольной строки (для token_hash)
 async function sha256Hex(s) {
     const buf = await crypto.subtle.digest(
@@ -1033,7 +1080,7 @@ export default {
             return err('not_found', `No route for ${req.method} ${path}`, 404);
         } catch (e) {
             console.error('[worker] unhandled error:', e);
-            return err('server_error', 'Internal error', 500);
+            return err('server_error', String(e && e.message ? e.message : e), 500);
         }
     },
 };
