@@ -64,7 +64,13 @@ function escapeHtml(s) {
 
 function fmtDate(unix) {
     if (!unix) return "—";
-    return new Date(unix * 1000).toISOString().slice(0, 10);
+    if (typeof unix === "string" && unix.includes("-") && !/^\d+$/.test(unix)) {
+        return unix.slice(0, 10);
+    }
+    const n = Number(unix);
+    if (!Number.isFinite(n) || n <= 0) return "—";
+    const ms = n > 1e12 ? n : n * 1000;
+    return new Date(ms).toISOString().slice(0, 10);
 }
 
 function fmtKey(k) {
@@ -103,7 +109,7 @@ function showDashboard() {
 function doLogin() {
     const input = document.getElementById("admin-token");
     const errBox = document.getElementById("login-error");
-    const t = input.value.trim();
+    const t = input.value.trim().replace(/\r/g, "");
     if (!t) {
         errBox.textContent = "Введите ADMIN_TOKEN.";
         errBox.style.display = "";
