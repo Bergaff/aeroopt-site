@@ -18,6 +18,30 @@
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
+// Git-деплой иногда без nodejs_compat — глобального Buffer нет.
+if (typeof globalThis.Buffer === 'undefined') {
+    globalThis.Buffer = {
+        from(data, enc) {
+            if (typeof data === 'string') {
+                if (enc === 'hex') {
+                    const hex = data.length % 2 ? '0' + data : data;
+                    const u = new Uint8Array(hex.length / 2);
+                    for (let i = 0; i < u.length; i++) {
+                        u[i] = parseInt(hex.substr(i * 2, 2), 16);
+                    }
+                    return u;
+                }
+                return new TextEncoder().encode(data);
+            }
+            if (data instanceof ArrayBuffer) return new Uint8Array(data);
+            if (ArrayBuffer.isView(data)) {
+                return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+            }
+            return new Uint8Array(data);
+        },
+    };
+}
+
 // =====================================================================
 // Утилиты
 // =====================================================================
@@ -134,7 +158,6 @@ function genLicenseKey() {
 }
 
 
-// Живая D1: plan / customer_email / max_machines / created_at (TEXT).
 function toUnix(v) {
     if (v == null || v === '') return null;
     if (typeof v === 'number' && Number.isFinite(v)) {
@@ -868,60 +891,50 @@ async function handleAdminSetNote(req, env) {
 async function handleAdminList(req, env) {
     const auth = await adminCheck(req, env);
     if (!auth.ok) return auth.error;
-    const url = new URL(req.url);
-    const product = url.searchParams.get('product');
-    const activeOnly = url.searchParams.get('active_only') === '1';
-    const limit = Math.min(parseInt(url.searchParams.get('limit') || '100'), 500);
-    const offset = parseInt(url.searchParams.get('offset') || '0');
+    try {
+        const url = new URL(req.url);
+        const product = url.searchParams.get('product');
+        const activeOnly = url.searchParams.get('active_only') === '1';
+        const limit = Math.min(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 500);
+        const offset = parseInt(url.searchParams.get('offset') || '0', 10) || 0;
 
-    let sql = 'SELECT * FROM licenses WHERE 1=1';
-    const args = [];
-    if (product) {
-        sql += ' AND plan = ?';
-        args.push(product);
-    }
-    if (activeOnly) {
-        sql += ' AND revoked_at IS NULL';
-    }
-    sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
-    args.push(limit, offset);
+        let sql = 'SELECT license_key, plan, max_machines, customer_email, email, note, revoked_at, revoked_reason, created_at FROM licenses WHERE 1=1';
+        const args = [];
+        if (product) {
+            sql += ' AND plan = ?';
+            args.push(product);
+        }
+        if (activeOnly) {
+            sql += ' AND revoked_at IS NULL';
+        }
+        sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+        args.push(limit, offset);
 
-    let countSql = 'SELECT COUNT(*) as n FROM licenses WHERE 1=1';
-    const countArgs = [];
-    if (product) {
-        countSql += ' AND plan = ?';
-        countArgs.push(product);
-    }
-    if (activeOnly) {
-        countSql += ' AND revoked_at IS NULL';
-    }
-    const count = await env.DB.prepare(countSql).bind(...countArgs).first();
-
-    const rows = await env.DB.prepare(sql).bind(...args).all();
-    const result = [];
-    for (const r of rows.results) {
-        const n = normalizeLicense(r);
-        result.push({
-            license_key: n.license_key,
-            email: n.email,
-            product: n.product,
-            issued_at: n.issued_at,
-            expires_at: n.expires_at,
-            max_machines: n.max_machines,
-            note: n.note,
-            revoked_at: n.revoked_at,
-            revoked_reason: n.revoked_reason,
-            active_machines: await countActiveMachines(env, n.license_key),
-            is_active: !n.revoked_at,
+        const rows = await env.DB.prepare(sql).bind(...args).all();
+        const list = (rows.results || []).map((r) => ({
+            license_key: r.license_key,
+            email: r.customer_email || r.email || '',
+            product: r.plan || '',
+            issued_at: toUnix(r.created_at),
+            expires_at: null,
+            max_machines: r.max_machines,
+            note: r.note,
+            revoked_at: r.revoked_at,
+            revoked_reason: r.revoked_reason,
+            active_machines: 0,
+            is_active: !r.revoked_at,
+        }));
+        return ok({
+            licenses: list,
+            total: list.length,
+            limit,
+            offset,
         });
+    } catch (e) {
+        return err('db_error', String(e && e.message ? e.message : e), 500);
     }
-    return ok({
-        licenses: result,
-        total: count.n,
-        limit,
-        offset,
-    });
 }
+
 
 /**
  * GET /v1/admin/inspect
