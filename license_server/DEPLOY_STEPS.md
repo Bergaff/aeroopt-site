@@ -112,21 +112,16 @@ Cloudflare Dashboard → Workers → Triggers → Custom routes →
 - CLI (Node):  `cd license_server && ADMIN_TOKEN=... node admin_cli.js ...`
 - CLI (Python, на машине без Node):
   `set ADMIN_TOKEN=... && python ..\generate_license.py issue --email x@x --product pro`
-- После оплаты Stripe ключ создаётся автоматически (см. ниже).
+- Сейчас покупка идёт через sales@aeroopt.app (онлайн-оплата — заглушка),
+  ключ выдаётся вручную в админке.
 
-## 7. Stripe — автоматическая выдача при покупке
+## 7. Платежи (на будущее, сейчас заглушка)
 
-1. Stripe Dashboard → Products: создать Personal ($99) и Pro ($299),
-   в метаданных продукта/цены (или Checkout Session) указать
-   `product=personal` / `product=pro`.
-2. Developers → Webhooks → Add endpoint:
-   - URL: `https://aeroopt-license-server.tgmg.workers.dev/v1/stripe_webhook`
-   - Events: `checkout.session.completed`
-3. Подписать секрет (`whsec_...`):
-   `npx wrangler secret put STRIPE_WEBHOOK_SECRET`.
-4. Ссылки «Купить» на сайте (сейчас заглушки `buy.stripe.com/YOUR_...`)
-   заменить на реальные Payment Links из Stripe.
-
-После оплаты воркер сам создаёт ключ в D1 и (если задан Resend) шлёт
-его покупателю на почту. События Stripe идемпотентны — повторная
-доставка вебхука не создаёт дублей.
+Сейчас покупка идёт через `sales@aeroopt.app`: кнопки сайта ведут на
+почту, ключ выдаётся вручную в админке. В воркере заготовлен маршрут
+`/v1/stripe_webhook` (создание ключа в D1 после события
+`checkout.session.completed`, идемпотентность по event id, отправка
+ключа письмом при настроенном Resend) — без секрета
+`STRIPE_WEBHOOK_SECRET` он не срабатывает. Когда выберете платёжную
+систему: добавьте секрет подписи вебхука, укажите в метаданных сессии
+`product=personal|pro`, замените mailto на платёжные ссылки.

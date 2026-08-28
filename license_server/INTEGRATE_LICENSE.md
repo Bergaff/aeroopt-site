@@ -88,10 +88,12 @@ JS — `hmac()` в `src/worker.js`, Python — `_canonical()`/
 CLI: `node admin_cli.js issue --email x@x --product pro`
 или Python `python generate_license.py issue ...` (из корня репо).
 
-## Stripe
+## Платежи (сейчас заглушка, на будущее)
 
-`POST /v1/stripe_webhook` — событие `checkout.session.completed`.
-Проверка подписи по `STRIPE_WEBHOOK_SECRET`; план берётся из
-metadata сессии (`product=personal|pro`); идемпотентно по event id
-(таблица `stripe_events`). После оплаты ключ создаётся в D1 и
-отправляется на email покупателя.
+Онлайн-оплата временно отключена: кнопки «Купить» на сайте ведут на
+`mailto:sales@aeroopt.app`, ключи выдаются вручную через админку.
+Задел для авто-выдачи: `POST /v1/stripe_webhook` (событие
+`checkout.session.completed`, проверка подписи по
+`STRIPE_WEBHOOK_SECRET`, план из metadata сессии `product=personal|pro`,
+идемпотентность по event id в таблице `stripe_events`). Без секрета
+маршрут отвечает 400 и ни на что не влияет.

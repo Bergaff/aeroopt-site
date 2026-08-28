@@ -17,8 +17,7 @@ license_client/license_checker.py
      офлайн-режим до 60 дней, после истечения лицензии — grace 7 дней.
 
 Никакого licenses.json в открытом Git больше нет: ключи генерируются
-в админке на сайте (или автоматически после оплаты Stripe) и лежат
-только в базе Cloudflare D1.
+в админке на сайте и лежат только в базе Cloudflare D1.
 
 Публичный API класса не менялся (bootstrap/activate/heartbeat/
 deactivate/is_calculation_allowed/acquire_run_token/get_status_text/
