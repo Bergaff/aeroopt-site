@@ -241,7 +241,7 @@ async function handleActivate(req, env, ctx) {
 
     // 1. Проверяем существование license_key (включая revoked)
     const license = await env.DB.prepare(
-        'SELECT id, license_key, email, product, expires_at, max_hwid_count, revoked_at ' +
+        'SELECT license_key, customer_email, email, plan, max_machines, revoked_at ' +
         'FROM licenses WHERE license_key = ?'
     ).bind(license_key).first();
 
@@ -269,10 +269,11 @@ async function handleActivate(req, env, ctx) {
     const hwidList = existing.results.map((r) => r.hwid);
     const alreadyBound = hwidList.includes(hwid);
 
-    if (!alreadyBound && hwidList.length >= license.max_hwid_count) {
+    const maxMachines = license.max_machines || 2;
+    if (!alreadyBound && hwidList.length >= maxMachines) {
         return err(
             'hwid_limit',
-            `Max ${license.max_hwid_count} machines. ` +
+            `Max ${maxMachines} machines. ` +
             'Deactivate old machine at https://aeroopt.app/account',
             403
         );
@@ -305,10 +306,10 @@ async function handleActivate(req, env, ctx) {
         license_key,
         hwid,
         token,
-        expires_at: license.expires_at,
+        expires_at: null,
         hwid_count: newHwidCount,
-        hwid_max: license.max_hwid_count,
-        product: license.product,
+        hwid_max: maxMachines,
+        product: license.plan || 'personal',
     };
     const signature = await signResponse(payload, env.LICENSE_HMAC_KEY);
     return ok({ ...payload, signature });
@@ -333,7 +334,7 @@ async function handleHeartbeat(req, env) {
     }
 
     const activation = await env.DB.prepare(
-        'SELECT a.id, a.last_token, a.is_active, l.expires_at, l.revoked_at ' +
+        'SELECT a.last_token, a.revoked_at as act_revoked, l.revoked_at ' +
         'FROM activations a JOIN licenses l ON a.license_key = l.license_key ' +
         'WHERE a.license_key = ? AND a.hwid = ?'
     ).bind(license_key, hwid).first();
@@ -342,7 +343,7 @@ async function handleHeartbeat(req, env) {
         return err('not_bound',
             'This HWID is not bound to this license. Run activate first.', 404);
     }
-    if (!activation.is_active) {
+    if (activation.act_revoked) {
         return err('deactivated', 'This activation was deactivated', 403);
     }
     if (activation.revoked_at) {
@@ -362,7 +363,7 @@ async function handleHeartbeat(req, env) {
 
     // Проверяем срок лицензии
     const now = Math.floor(Date.now() / 1000);
-    const expired = activation.expires_at && activation.expires_at < now;
+    const expired = false; // expires_at не используется в текущей схеме
     if (expired || !tokenOk) {
         return err('expired_or_revoked',
             'License expired or token revoked', 403);
@@ -411,8 +412,8 @@ async function handleDeactivate(req, env) {
     }
 
     const result = await env.DB.prepare(
-        'UPDATE activations SET is_active = 0 ' +
-        'WHERE license_key = ? AND hwid = ?'
+        "UPDATE activations SET revoked_at = datetime('now') " +
+        'WHERE license_key = ? AND hwid = ? AND revoked_at IS NULL'
     ).bind(license_key, hwid).run();
 
     if (result.meta.changes === 0) {
