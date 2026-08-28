@@ -27,9 +27,18 @@ function setToken(t) {
 // HTTP
 // =====================================================================
 async function adminApi(method, path, body) {
+    const token = getToken();
+    // HTTP-заголовки принимают только Latin-1; кириллица/эмодзи в токене
+    // роняют fetch с «non ISO-8859-1 code point».
+    for (const ch of token) {
+        if (ch.charCodeAt(0) > 255) {
+            throw new Error("Токен содержит недопустимые символы (кириллица/эмодзи). " +
+                "ADMIN_TOKEN должен состоять только из латинских букв, цифр и " +
+                "стандартных знаков. Проверьте секрет ADMIN_TOKEN в Cloudflare.");
+        }
+    }
     const headers = {
-        "X-Admin-Token": getToken(),
-        "User-Agent": "AeroOpt-admin-web/1.0",
+        "X-Admin-Token": token,
     };
     const init = { method, headers };
     if (body) {
@@ -114,6 +123,17 @@ function doLogin() {
         errBox.textContent = "Введите ADMIN_TOKEN.";
         errBox.style.display = "";
         return;
+    }
+    // HTTP-заголовок X-Admin-Token допускает только Latin-1 символы.
+    for (const ch of t) {
+        if (ch.charCodeAt(0) > 255) {
+            errBox.textContent = "Токен содержит недопустимые символы (кириллица/эмодзи). " +
+                "ADMIN_TOKEN должен состоять только из латинских букв, цифр и " +
+                "стандартных знаков. Задайте такой секрет в Cloudflare (Worker → " +
+                "Settings → Variables and Secrets → ADMIN_TOKEN) и войдите с ним.";
+            errBox.style.display = "";
+            return;
+        }
     }
     setToken(t);
     errBox.style.display = "none";
