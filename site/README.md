@@ -87,8 +87,9 @@ npx wrangler r2 bucket put aeroopt-site legal/terms.html --file=legal/terms.html
 Сайт работает с Cloudflare Worker + D1:
 `https://aeroopt-license-server.tgmg.workers.dev`.
 Ключи хранятся только в базе D1 (публичного `licenses.json` больше нет);
-выдача — через админку `/admin/`, CLI или вебхук Stripe.
-Подробности: [`../license_server/DEPLOY_STEPS.md`](../license_server/DEPLOY_STEPS.md).
+выдача — через админку `/admin/` или автоматически после оплаты Stripe.
+Деплой без терминала: [`../license_server/DEPLOY_DASHBOARD.md`](../license_server/DEPLOY_DASHBOARD.md)
+(вариант с `wrangler`: [`../license_server/DEPLOY_STEPS.md`](../license_server/DEPLOY_STEPS.md)).
 
 Если URL воркера изменится — поправьте `API_BASE` в `account/portal.js`
 и `admin/admin.js`.

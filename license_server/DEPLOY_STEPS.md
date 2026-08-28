@@ -1,5 +1,9 @@
 # Деплой и обновление license-сервера AeroOpt
 
+> 🖱️ **Предпочтительный способ — без командной строки, только веб-интерфейсы
+> Cloudflare/Stripe/Resend: см. [DEPLOY_DASHBOARD.md](./DEPLOY_DASHBOARD.md).**
+> Ниже — тот же процесс через `wrangler` (терминал), как альтернатива.
+
 Архитектура: **приложение AeroOpt → Cloudflare Worker → D1 (база лицензий)**.
 Никакого публичного `licenses.json` в Git нет: ключи выдаются админкой на
 сайте (или автоматически после оплаты Stripe) и хранятся только в D1.
@@ -22,8 +26,9 @@ npx wrangler d1 execute aeroopt-licenses --file=schema.sql
 npx wrangler d1 execute aeroopt-licenses --file=seed.sql
 
 # 3) секреты
-openssl rand -hex 32 | npx wrangler secret put LICENSE_HMAC_KEY
-openssl rand -hex 32 | npx wrangler secret put ADMIN_TOKEN
+#    LICENSE_HMAC_KEY — строго значение из раздела 3 ниже (оно зашито в клиент)!
+npx wrangler secret put LICENSE_HMAC_KEY   # вставить 64-hex ключ, не генерировать новый
+npx wrangler secret put ADMIN_TOKEN        # придумать длинный токен админки
 #    (опц.) email и Stripe:
 #    npx wrangler secret put RESEND_API_KEY
 #    npx wrangler secret put RESEND_FROM

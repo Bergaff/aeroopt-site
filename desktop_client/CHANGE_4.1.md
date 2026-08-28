@@ -75,7 +75,9 @@ AeroOpt/
 - «Подпись НЕ СОВПАЛА» в диагностике → на воркере задан другой
   `LICENSE_HMAC_KEY`. Должен быть:
   `7d7a18a6632e3ef6f0a933e83bb4b5c48092b39718ea106554e4b870d04f2eaf`
-  (задать: `npx wrangler secret put LICENSE_HMAC_KEY`).
+  (проверить/задать в Cloudflare Dashboard: Worker → Settings →
+  Variables and Secrets → `LICENSE_HMAC_KEY`; см.
+  `license_server/DEPLOY_DASHBOARD.md`, шаг 4).
 - «hwid_limit» при активации → отвязать старую машину в личном кабинете
   на сайте (`/account/`) или деактивировать на старом ПК.
 - Переопределить сервер/ключ без пересборки (тесты, превью):

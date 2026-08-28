@@ -97,6 +97,8 @@ npx wrangler r2 bucket put aeroopt-site legal/terms.html --file=legal/terms.html
 - автоматически после оплаты Stripe (вебхук).
 
 Полная инструкция по деплою, миграции боевой базы и HMAC-секрету:
+🖱️ без терминала — [`license_server/DEPLOY_DASHBOARD.md`](license_server/DEPLOY_DASHBOARD.md)
+(через дашборд Cloudflare); через `wrangler` —
 [`license_server/DEPLOY_STEPS.md`](license_server/DEPLOY_STEPS.md).
 Справочник API: [`license_server/INTEGRATE_LICENSE.md`](license_server/INTEGRATE_LICENSE.md).
 Интеграция в десктоп: [`desktop_client/README_INTEGRATION.md`](desktop_client/README_INTEGRATION.md).
