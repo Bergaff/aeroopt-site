@@ -263,7 +263,7 @@ async function handleActivate(req, env, ctx) {
 
     // 3. Считаем активные привязки
     const existing = await env.DB.prepare(
-        'SELECT hwid FROM activations WHERE license_key = ? AND is_active = 1'
+        'SELECT hwid FROM activations WHERE license_key = ? AND revoked_at IS NULL'
     ).bind(license_key).all();
 
     const hwidList = existing.results.map((r) => r.hwid);
