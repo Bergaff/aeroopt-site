@@ -912,7 +912,9 @@ async function handleAdminList(req, env) {
     const args = [];
     if (product) { sql += ' AND plan = ?'; args.push(product); }
     if (activeOnly) sql += ' AND revoked_at IS NULL';
-    sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
+    // created_at может быть NULL у старых ключей — подстраховываемся сортировкой
+    // по rowid (порядок вставки) при этом NULL'ах.
+    sql += ' ORDER BY COALESCE(created_at, \'\') DESC, rowid DESC LIMIT ? OFFSET ?';
     args.push(limit, offset);
 
     try {
@@ -989,6 +991,145 @@ async function handleAdminInspect(req, env) {
 }
 
 // =====================================================================
+// Самозалечивающаяся миграция схемы
+// =====================================================================
+// Боевые базы создавались в разное время и могут не иметь части колонок
+// (например, activations.hostname / first_seen / last_seen,
+// licenses.expires_at / features). Чтобы не требовать ручных ALTER в
+// D1 Console, воркер при первом запросе сам доставляет недостающее.
+// Выполняется один раз на изолят (флаг в globalThis); все ошибки
+// «duplicate column / already exists» ожидаемы и игнорируем.
+
+async function ensureSchema(env) {
+    if (globalThis.__SCHEMA_OK__) return;
+    const DB = env.DB;
+
+    // 1) Создаём таблицы, если их нет вовсе (свежая база).
+    //    Для существующих таблиц IF NOT EXISTS — no-op.
+    await DB.prepare(`
+        CREATE TABLE IF NOT EXISTS licenses (
+            license_key     TEXT    PRIMARY KEY,
+            plan            TEXT    NOT NULL DEFAULT 'personal',
+            max_machines    INTEGER NOT NULL DEFAULT 2,
+            customer_email  TEXT,
+            email           TEXT,
+            note            TEXT,
+            expires_at      INTEGER,
+            features        TEXT,
+            revoked_at      TEXT,
+            revoked_reason  TEXT,
+            created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+            updated_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+        )`).run().catch(() => {});
+
+    await DB.prepare(`
+        CREATE TABLE IF NOT EXISTS activations (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            license_key     TEXT    NOT NULL,
+            hwid            TEXT    NOT NULL,
+            hostname        TEXT,
+            os              TEXT,
+            app_version     TEXT,
+            first_seen      INTEGER NOT NULL,
+            last_seen       INTEGER NOT NULL,
+            last_token      TEXT,
+            last_token_ts   INTEGER,
+            is_active       INTEGER NOT NULL DEFAULT 1,
+            revoked_at      TEXT
+        )`).run().catch(() => {});
+
+    await DB.prepare(`
+        CREATE TABLE IF NOT EXISTS heartbeats (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            license_key     TEXT NOT NULL,
+            hwid            TEXT NOT NULL,
+            ts              INTEGER NOT NULL,
+            runs_count      INTEGER NOT NULL DEFAULT 0,
+            app_version     TEXT
+        )`).run().catch(() => {});
+
+    await DB.prepare(`
+        CREATE TABLE IF NOT EXISTS stripe_events (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id        TEXT NOT NULL UNIQUE,
+            event_type      TEXT NOT NULL,
+            payload         TEXT NOT NULL,
+            processed_at    INTEGER NOT NULL,
+            license_key     TEXT
+        )`).run().catch(() => {});
+
+    await DB.prepare(`
+        CREATE TABLE IF NOT EXISTS revoked_tokens (
+            token_hash      TEXT PRIMARY KEY,
+            license_key     TEXT NOT NULL,
+            revoked_at      INTEGER NOT NULL
+        )`).run().catch(() => {});
+
+    await DB.prepare(`
+        CREATE TABLE IF NOT EXISTS admin_audit_log (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            action          TEXT NOT NULL,
+            license_key     TEXT,
+            admin_ip        TEXT,
+            payload         TEXT,
+            ts              INTEGER NOT NULL
+        )`).run().catch(() => {});
+
+    // 2) Доставляем недостающие колонки в СТАРЫЕ таблицы.
+    const addColumns = async (table, cols) => {
+        for (const [name, decl] of cols) {
+            try {
+                await DB.prepare(
+                    `ALTER TABLE ${table} ADD COLUMN ${name} ${decl}`
+                ).run();
+            } catch { /* колонка уже есть — нормально */ }
+        }
+    };
+    await addColumns('licenses', [
+        ['plan', "TEXT NOT NULL DEFAULT 'personal'"],
+        ['max_machines', 'INTEGER NOT NULL DEFAULT 2'],
+        ['customer_email', 'TEXT'],
+        ['email', 'TEXT'],
+        ['note', 'TEXT'],
+        ['expires_at', 'INTEGER'],
+        ['features', 'TEXT'],
+        ['revoked_at', 'TEXT'],
+        ['revoked_reason', 'TEXT'],
+        // Добавляем как обычные nullable-TEXT: SQLite при ALTER капризничает
+        // к неконстантным/NOT NULL дефолтам на существующих строках.
+        // Новые записи ставят datetime('now') явно в INSERT; старые строки
+        // получают NULL, а toUnix() и сортировка это переживают.
+        ['created_at', 'TEXT'],
+        ['updated_at', 'TEXT'],
+    ]);
+    await addColumns('activations', [
+        ['hostname', 'TEXT'],
+        ['os', 'TEXT'],
+        ['app_version', 'TEXT'],
+        ['first_seen', 'INTEGER'],
+        ['last_seen', 'INTEGER'],
+        ['last_token', 'TEXT'],
+        ['last_token_ts', 'INTEGER'],
+        ['is_active', 'INTEGER NOT NULL DEFAULT 1'],
+        ['revoked_at', 'TEXT'],
+    ]);
+
+    // 3) Индексы (может не хватать в старой базе).
+    await DB.prepare(
+        'CREATE INDEX IF NOT EXISTS idx_activations_key ON activations(license_key)'
+    ).run().catch(() => {});
+    // Уникальный индекс создаём только если нет дублей — иначе пропускаем.
+    try {
+        await DB.prepare(
+            'CREATE UNIQUE INDEX IF NOT EXISTS uq_activations_key_hwid ' +
+            'ON activations(license_key, hwid)'
+        ).run();
+    } catch { /* уже есть дубли (license_key,hwid) — не критично */ }
+
+    globalThis.__SCHEMA_OK__ = true;
+}
+
+// =====================================================================
 // Роутер
 // =====================================================================
 
@@ -1005,6 +1146,9 @@ export default {
 
         try {
             if (path === '/healthz') return ok({ status: 'ok', version: '4.1.0' });
+
+            // Ленивая миграция схемы под текущую базу (один раз на изолят).
+            await ensureSchema(env);
 
             if (req.method === 'POST') {
                 switch (path) {

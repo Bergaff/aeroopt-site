@@ -5,51 +5,39 @@ Resend Dashboard. Командная строка не нужна ни на од
 
 ---
 
-## Шаг 1. Обновить базу D1
+## Шаг 1. База D1 — миграция выполняется автоматически
 
-База у вас уже есть. В D1 нет кнопки «импорт файла» — SQL просто
-вставляется в редактор и выполняется.
+База у вас уже есть, и **вручную в ней ничего менять не нужно**: новая
+версия воркера при первом же запросе сама проверяет и доставляет
+недостающие колонки и таблицы (самозалечивающаяся миграция — мы
+специально проверили это на базе старой структуры, где в `activations`
+не было колонок `hostname/first_seen/...`, а в `licenses` —
+`expires_at/features`).
 
-1. [Cloudflare Dashboard](https://dash.cloudflare.com) →
-   **Workers & Pages** → слева **D1 SQL Database** → откройте свою базу.
-2. Вкладка **Console** (SQL-редактор в браузере).
-3. **Сначала проверьте структуру** — выполните запрос:
-   ```sql
-   SELECT name FROM pragma_table_info('licenses');
-   ```
-   - Если в ответе есть `expires_at` и `features` — база уже мигрирована,
-     перейдите к проверке демо-ключа (пункт 5).
-   - Если их нет — нужна миграция (пункт 4).
-4. Вставьте в Console и выполните блок ниже **по одному оператору**
-   (после каждого жмите Execute; ошибки «duplicate column name» — это
-   нормально, значит колонка уже существует):
-   ```sql
-   ALTER TABLE licenses ADD COLUMN expires_at INTEGER;
-   ```
-   ```sql
-   ALTER TABLE licenses ADD COLUMN features TEXT;
-   ```
-   ```sql
-   ALTER TABLE activations ADD COLUMN revoked_at TEXT;
-   ```
-   ```sql
-   INSERT OR IGNORE INTO licenses
-       (license_key, plan, max_machines, customer_email, note,
-        expires_at, features, created_at, updated_at)
-   VALUES
-       ('AERO-DEMO-2026-TEST', 'pro', 2, 'demo@aeroopt.app',
-        'Демо-ключ для проверки связи (публичный)',
-        1830211200,
-        '["basic","sweep","optimization","rans","gpu"]',
-        datetime('now'), datetime('now'));
-   ```
-   (`1830211200` — это 31 декабря 2027; INSERT с `OR IGNORE` не создаст
-   дублей при повторном выполнении.)
-5. Проверка — выполните в Console:
-   ```sql
-   SELECT license_key, plan, max_machines, expires_at FROM licenses;
-   ```
-   В списке должна быть строка `AERO-DEMO-2026-TEST | pro | 2 | 1830211200`.
+Если хочется убедиться глазами, откройте D1 → ваша база → **Console**
+и выполните:
+```sql
+SELECT license_key, plan, max_machines FROM licenses;
+```
+Вы увидите свои существующие ключи — они на месте, воркер их не трогает,
+только добавляет недостающие поля.
+
+**Демо-ключ для проверки связи** добавлять вручную не обязательно: после
+деплоя просто выдайте любой тестовый ключ через админку (`/admin/` →
+«Выдать ключ»). Если демо-ключ `AERO-DEMO-2026-TEST` всё же нужен,
+выполните в Console один запрос (после того как новый воркер хотя бы
+раз ответил — колонки уже будут добавлены):
+```sql
+INSERT OR IGNORE INTO licenses
+    (license_key, plan, max_machines, customer_email, note,
+     expires_at, features, created_at, updated_at)
+VALUES
+    ('AERO-DEMO-2026-TEST', 'pro', 2, 'demo@aeroopt.app',
+     'Демо-ключ для проверки связи (публичный)',
+     1830211200,
+     '["basic","sweep","optimization","rans","gpu"]',
+     datetime('now'), datetime('now'));
+```
 
 ## Шаг 2. Задеплоить код воркера
 
