@@ -1,116 +1,127 @@
-# Быстрый деплой обновлённого воркера
+# Деплой и обновление license-сервера AeroOpt
 
-## 📌 После любой правки в `src/worker.js` или `wrangler.toml`
+Архитектура: **приложение AeroOpt → Cloudflare Worker → D1 (база лицензий)**.
+Никакого публичного `licenses.json` в Git нет: ключи выдаются админкой на
+сайте (или автоматически после оплаты Stripe) и хранятся только в D1.
 
-```bash
-cd license-server
-git pull                 # если работаете в Git
-git add .
-git commit -m "fix: CORS whitelist для localhost"
-git push
+---
 
-# На той машине, где wrangler (или у себя локально)
-npx wrangler deploy      # задеплоит воркер на Cloudflare
-```
-
-Это занимает 5-10 секунд. После этого обновление видно на URL'е воркера.
-
-## 📌 Проверить что задеплоилось
+## 1. Первичная установка (если воркер ещё не задеплоен)
 
 ```bash
-# Healthcheck
-curl https://aeroopt-license-server.<ваш-subdomain>.workers.dev/healthz
-
-# Проверить CORS (должен вернуть Access-Control-Allow-Origin):
-curl -X OPTIONS https://aeroopt-license-server.<ваш-subdomain>.workers.dev/v1/activate \
-  -H "Origin: http://localhost:8000" \
-  -H "Access-Control-Request-Method: POST" \
-  -i
-# В заголовках должно быть:
-#   access-control-allow-origin: http://localhost:8000
-```
-
-## 📌 Если воркер ещё не задеплоен
-
-См. `INTEGRATE_LICENSE.md`, шаги 1-6. Кратко:
-
-```bash
-cd license-server
+cd license_server
 npm install
 npx wrangler login
 
-# D1
+# 1) база (database_id вставить в wrangler.toml)
 npx wrangler d1 create aeroopt-licenses
-# (вставить database_id в wrangler.toml)
+
+# 2) схема
 npx wrangler d1 execute aeroopt-licenses --file=schema.sql
+#    тестовые ключи (опционально):
 npx wrangler d1 execute aeroopt-licenses --file=seed.sql
 
-# Secrets
+# 3) секреты
 openssl rand -hex 32 | npx wrangler secret put LICENSE_HMAC_KEY
 openssl rand -hex 32 | npx wrangler secret put ADMIN_TOKEN
+#    (опц.) email и Stripe:
+#    npx wrangler secret put RESEND_API_KEY
+#    npx wrangler secret put RESEND_FROM
+#    npx wrangler secret put STRIPE_WEBHOOK_SECRET
 
-# Deploy
+# 4) деплой
 npx wrangler deploy
 ```
 
-## 📌 Как посмотреть все ключи
+После деплоя воркер доступен на
+`https://aeroopt-license-server.<ваш-subdomain>.workers.dev`
+(сейчас в коде прописан `tgmg`).
 
-Через CLI (есть у вас в репо):
+## 2. Обновление уже работающего воркера (миграция 2026)
+
+Если база создавалась по старой схеме (без `expires_at`, `features` и
+`activations.revoked_at`) — выполните миграцию на БОЕВОЙ базе:
+
 ```bash
-cd license-server
-export ADMIN_TOKEN=ваш_токен_из_wrangler_secret
-node admin_cli.js list
+cd license_server
+npx wrangler d1 execute aeroopt-licenses --remote --file=migrate_2026.sql
+npx wrangler deploy
 ```
 
-Через веб-админку (`admin/index.html`):
-1. Задеплойте сайт на Cloudflare Pages
-2. Откройте `aeroopt.app/admin/` (или `aeroopt-site.pages.dev/admin/`)
-3. Введите ADMIN_TOKEN
-4. Увидите таблицу всех ключей
+> D1 не поддерживает `ADD COLUMN IF NOT EXISTS`: если колонка уже есть,
+> wrangler покажет ошибку «duplicate column name» на соответствующем
+> ALTER и продолжит со следующего оператора — это нормально.
 
-Через D1 напрямую:
+## 3. Секрет LICENSE_HMAC_KEY и десктоп-клиент
+
+Подпись ответов сервера проверяется в приложении встроенным HMAC-ключом.
+Они ДОЛЖНЫ совпадать:
+
+- сервер: `npx wrangler secret put LICENSE_HMAC_KEY` → введите 64 hex;
+- приложение: тот же ключ зашит в
+  `desktop_client/license_client/license_checker.py`
+  (XOR-обфускация, метод `_decode_hmac_key`).
+
+Текущий ключ сборки 4.1.0 (64 hex):
+
+```
+7d7a18a6632e3ef6f0a933e83bb4b5c48092b39718ea106554e4b870d04f2eaf
+```
+
+Если ротируете ключ — задайте его в секрете воркера И пересоберите
+приложение с новым обфусцированным значением (см. INTEGRATE_LICENSE.md,
+раздел «Ротация HMAC-ключа»).
+
+При сборке через PyInstaller можно также передавать URL и ключ
+переменными окружения (они имеют приоритет над встроенными):
+
+```
+AEROOPT_LICENSE_SERVER = https://aeroopt-license-server.tgmg.workers.dev
+AEROOPT_LICENSE_HMAC_KEY = <64 hex>
+```
+
+## 4. Проверка после деплоя
+
 ```bash
-npx wrangler d1 execute aeroopt-licenses --command="SELECT license_key, email, product, issued_at, max_hwid_count, note, revoked_at FROM licenses ORDER BY issued_at DESC"
+curl https://aeroopt-license-server.tgmg.workers.dev/healthz
+# {"ok":true,...,"status":"ok","version":"4.1.0"}
+
+# активация демо-ключа (после миграции он есть в базе):
+curl -X POST https://aeroopt-license-server.tgmg.workers.dev/v1/activate \
+  -H "Content-Type: application/json" \
+  -d '{"license_key":"AERO-DEMO-2026-TEST","hwid":"0123456789abcdef0123456789abcdef","app_version":"4.1.0"}'
+# → {"ok":true,"status":"active",...,"signature":"..."}
 ```
 
-## 📌 Как выдать новый ключ
+## 5. Кастомный домен api.aeroopt.app (опционально)
 
-CLI:
-```bash
-node admin_cli.js issue --email student@mit.edu --product edu --max-machines 1 --note "МФТИ, диплом"
-```
+Cloudflare Dashboard → Workers → Triggers → Custom routes →
+`api.aeroopt.app/*`. Затем поменять `DEFAULT_URL` в
+`desktop_client/license_client/license_checker.py` и `API_BASE`
+в `site/admin/admin.js`, `site/account/portal.js` на `https://api.aeroopt.app`.
 
-Через админку: форма "Выдать ключ" вверху страницы.
+## 6. Управление ключами
 
-## 📌 Что выводит `node admin_cli.js issue`
+- Веб-админка: `https://<сайт>/admin/` → вход по `ADMIN_TOKEN`
+  (кнопка «Выдать ключ», список, отзыв, примечания, срок действия).
+- CLI (Node):  `cd license_server && ADMIN_TOKEN=... node admin_cli.js ...`
+- CLI (Python, на машине без Node):
+  `set ADMIN_TOKEN=... && python ..\generate_license.py issue --email x@x --product pro`
+- После оплаты Stripe ключ создаётся автоматически (см. ниже).
 
-```
-⏳ Генерирую ключ для student@mit.edu (edu)...
+## 7. Stripe — автоматическая выдача при покупке
 
-✅ Ключ выдан:
-   License key: AERO-EDUC-XXXX-XXXX-XXXX-XXXX
-   Email:       student@mit.edu
-   Product:     edu
-   Machines:    1
-   Expires:     бессрочно
-   Note:        МФТИ, диплом
-   Email:       sent   (если настроен Resend)
-```
+1. Stripe Dashboard → Products: создать Personal ($99) и Pro ($299),
+   в метаданных продукта/цены (или Checkout Session) указать
+   `product=personal` / `product=pro`.
+2. Developers → Webhooks → Add endpoint:
+   - URL: `https://aeroopt-license-server.tgmg.workers.dev/v1/stripe_webhook`
+   - Events: `checkout.session.completed`
+3. Подписать секрет (`whsec_...`):
+   `npx wrangler secret put STRIPE_WEBHOOK_SECRET`.
+4. Ссылки «Купить» на сайте (сейчас заглушки `buy.stripe.com/YOUR_...`)
+   заменить на реальные Payment Links из Stripe.
 
-Ключ сразу можно ввести в AeroOpt.
-
-## 📌 Важно: переменные окружения для CLI
-
-Чтобы CLI мог подключиться к воркеру, задайте:
-```bash
-export LICENSE_SERVER=https://aeroopt-license-server.<ваш-subdomain>.workers.dev
-export ADMIN_TOKEN=<тот_же_токен_что_в_wrangler_secret>
-```
-
-Или создайте файл `license-server/.env`:
-```
-LICENSE_SERVER=https://aeroopt-license-server.<ваш-subdomain>.workers.dev
-ADMIN_TOKEN=<ваш_токен>
-```
-
-CLI автоматически прочитает `.env`.
+После оплаты воркер сам создаёт ключ в D1 и (если задан Resend) шлёт
+его покупателю на почту. События Stripe идемпотентны — повторная
+доставка вебхука не создаёт дублей.

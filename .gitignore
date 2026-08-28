@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+
+# Секреты/локальное окружение
+.env
+*.local
+
+# OS
+.DS_Store
+Thumbs.db

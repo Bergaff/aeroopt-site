@@ -84,14 +84,14 @@ npx wrangler r2 bucket put aeroopt-site legal/terms.html --file=legal/terms.html
 
 ## 📌 Настройка лицензионного сервера
 
-Сайт ссылается на `https://aeroopt-license-server.aeroopt.workers.dev`.
+Сайт работает с Cloudflare Worker + D1:
+`https://aeroopt-license-server.tgmg.workers.dev`.
+Ключи хранятся только в базе D1 (публичного `licenses.json` больше нет);
+выдача — через админку `/admin/`, CLI или вебхук Stripe.
+Подробности: [`../license_server/DEPLOY_STEPS.md`](../license_server/DEPLOY_STEPS.md).
 
-**Если вы ещё не задеплоили license_server** (см. `DEPLOY_LICENSE.md`):
-
-1. Откройте `account/portal.js`
-2. Измените константу `API_BASE` на URL вашего воркера после деплоя.
-
-**Если уже задеплоили**, но URL другой — то же самое.
+Если URL воркера изменится — поправьте `API_BASE` в `account/portal.js`
+и `admin/admin.js`.
 
 ## 📌 Скачивание бинарников (через Google Drive)
 

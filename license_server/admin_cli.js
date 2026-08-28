@@ -16,7 +16,7 @@
  *   node admin_cli.js note AERO-XXXX-XXXX-XXXX-XXXX --note "новое примечание"
  *
  * Переменные окружения:
- *   LICENSE_SERVER  — URL воркера (default: https://aeroopt-license-server.aeroopt.workers.dev)
+ *   LICENSE_SERVER  — URL воркера (default: https://aeroopt-license-server.tgmg.workers.dev)
  *   ADMIN_TOKEN     — токен из `wrangler secret put ADMIN_TOKEN`
  */
 
@@ -24,7 +24,7 @@ const fs = require('fs');
 const path = require('path');
 
 const SERVER = process.env.LICENSE_SERVER ||
-    'https://aeroopt-license-server.aeroopt.workers.dev';
+    'https://aeroopt-license-server.tgmg.workers.dev';
 const TOKEN = process.env.ADMIN_TOKEN;
 
 if (!TOKEN) {
@@ -151,7 +151,7 @@ async function cmdIssue(args) {
         email: args.email,
         product,
         max_machines: args['max-machines'] ? parseInt(args['max-machines']) : undefined,
-        expires_at: args['expires-at'] ? parseInt(args['expires-at']) : undefined,
+        expires_in_days: args['expires-days'] ? parseInt(args['expires-days']) : undefined,
         note: args.note,
     };
     console.log(`⏳ Генерирую ключ для ${args.email} (${product})...`);
@@ -161,7 +161,7 @@ async function cmdIssue(args) {
     console.log(`   License key: ${result.license_key}`);
     console.log(`   Email:       ${result.email}`);
     console.log(`   Product:     ${result.product}`);
-    console.log(`   Machines:    ${result.max_mwid_count}`);
+    console.log(`   Machines:    ${result.max_machines ?? result.max_hwid_count}`);
     console.log(`   Expires:     ${result.expires_at ? fmtDate(result.expires_at) : 'бессрочно'}`);
     if (result.note) console.log(`   Note:        ${result.note}`);
     console.log(`   Email:       ${result.email_status}`);
@@ -198,7 +198,7 @@ async function cmdInspect(args) {
     console.log(`   Product:     ${l.product}`);
     console.log(`   Issued:      ${fmtDate(l.issued_at)}`);
     console.log(`   Expires:     ${l.expires_at ? fmtDate(l.expires_at) : 'бессрочно'}`);
-    console.log(`   Machines:    ${l.max_hwid_count}`);
+    console.log(`   Machines:    ${l.max_machines ?? l.max_hwid_count}`);
     console.log(`   Revoked:     ${l.revoked_at ? fmtDate(l.revoked_at) : 'нет'}`);
     if (l.revoked_reason) console.log(`   Revoke reason: ${l.revoked_reason}`);
     if (l.note) console.log(`   Note:        ${l.note}`);
@@ -271,7 +271,7 @@ AeroOpt admin CLI — управление лицензиями.
 
 Команды:
   issue  --email <e> --product <personal|pro|edu|trial>
-          [--max-machines N] [--note "..."]      выдать ключ
+          [--max-machines N] [--expires-days D] [--note "..."]  выдать ключ
   list   [--product <p>] [--active-only]        список ключей
           [--limit N] [--offset N]
   inspect <license_key>                          детали по ключу
