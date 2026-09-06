@@ -7,8 +7,8 @@
 
 // Прод-домен (когда настроите api.aeroopt.app в Cloudflare Workers):
 const API_BASE = "https://aeroopt-license-server.tgmg.workers.dev";
-// На время разработки можно переключить на workers.dev:
-// const API_BASE = "https://aeroopt-license-server.aeroopt.workers.dev";
+// Кастомный домен (после настройки в Cloudflare Workers):
+// const API_BASE = "https://api.aeroopt.app";
 const STORAGE_KEY = "aeroopt.admin_token";
 
 // =====================================================================
@@ -27,9 +27,18 @@ function setToken(t) {
 // HTTP
 // =====================================================================
 async function adminApi(method, path, body) {
+    const token = getToken();
+    // HTTP-заголовки принимают только Latin-1; кириллица/эмодзи в токене
+    // роняют fetch с «non ISO-8859-1 code point».
+    for (const ch of token) {
+        if (ch.charCodeAt(0) > 255) {
+            throw new Error("Токен содержит недопустимые символы (кириллица/эмодзи). " +
+                "ADMIN_TOKEN должен состоять только из латинских букв, цифр и " +
+                "стандартных знаков. Проверьте секрет ADMIN_TOKEN в Cloudflare.");
+        }
+    }
     const headers = {
-        "X-Admin-Token": getToken(),
-        "User-Agent": "AeroOpt-admin-web/1.0",
+        "X-Admin-Token": token,
     };
     const init = { method, headers };
     if (body) {
@@ -115,6 +124,17 @@ function doLogin() {
         errBox.style.display = "";
         return;
     }
+    // HTTP-заголовок X-Admin-Token допускает только Latin-1 символы.
+    for (const ch of t) {
+        if (ch.charCodeAt(0) > 255) {
+            errBox.textContent = "Токен содержит недопустимые символы (кириллица/эмодзи). " +
+                "ADMIN_TOKEN должен состоять только из латинских букв, цифр и " +
+                "стандартных знаков. Задайте такой секрет в Cloudflare (Worker → " +
+                "Settings → Variables and Secrets → ADMIN_TOKEN) и войдите с ним.";
+            errBox.style.display = "";
+            return;
+        }
+    }
     setToken(t);
     errBox.style.display = "none";
     loadList().then(showDashboard).catch(e => {
@@ -138,11 +158,13 @@ async function submitIssue(e) {
     const email = document.getElementById("f-email").value.trim();
     const product = document.getElementById("f-product").value;
     const machinesVal = document.getElementById("f-machines").value;
+    const daysVal = document.getElementById("f-days").value;
     const note = document.getElementById("f-note").value.trim();
     if (!email) return;
 
     const body = { email, product };
     if (machinesVal) body.max_machines = parseInt(machinesVal);
+    if (daysVal) body.expires_in_days = parseInt(daysVal);
     if (note) body.note = note;
 
     try {
@@ -153,7 +175,8 @@ async function submitIssue(e) {
         meta.innerHTML = `
             Email: ${escapeHtml(data.email)}<br>
             Продукт: ${escapeHtml(data.product)}<br>
-            Машин: ${data.max_mwid_count}<br>
+            Машин: ${data.max_machines ?? data.max_hwid_count}<br>
+            Действует до: ${data.expires_at ? fmtDate(data.expires_at) : "бессрочно"}<br>
             Email статус: ${escapeHtml(data.email_status)}
         `;
         document.getElementById("issue-result").style.display = "";
@@ -210,6 +233,7 @@ async function loadList() {
                 <td>${statusBadge(l)}</td>
                 <td>${l.active_machines || 0} / ${l.max_machines}</td>
                 <td>${fmtDate(l.issued_at)}</td>
+                <td>${l.expires_at ? fmtDate(l.expires_at) : "бессрочно"}</td>
                 <td>${escapeHtml(l.note || "")}</td>
                 <td>${actions} · <a href="#" data-action="note" data-key="${escapeHtml(l.license_key)}">прим.</a></td>
             `;

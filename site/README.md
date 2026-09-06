@@ -84,14 +84,15 @@ npx wrangler r2 bucket put aeroopt-site legal/terms.html --file=legal/terms.html
 
 ## 📌 Настройка лицензионного сервера
 
-Сайт ссылается на `https://aeroopt-license-server.aeroopt.workers.dev`.
+Сайт работает с Cloudflare Worker + D1:
+`https://aeroopt-license-server.tgmg.workers.dev`.
+Ключи хранятся только в базе D1 (публичного `licenses.json` больше нет);
+выдача — через админку `/admin/` или автоматически после оплаты Stripe.
+Деплой без терминала: [`../license_server/DEPLOY_DASHBOARD.md`](../license_server/DEPLOY_DASHBOARD.md)
+(вариант с `wrangler`: [`../license_server/DEPLOY_STEPS.md`](../license_server/DEPLOY_STEPS.md)).
 
-**Если вы ещё не задеплоили license_server** (см. `DEPLOY_LICENSE.md`):
-
-1. Откройте `account/portal.js`
-2. Измените константу `API_BASE` на URL вашего воркера после деплоя.
-
-**Если уже задеплоили**, но URL другой — то же самое.
+Если URL воркера изменится — поправьте `API_BASE` в `account/portal.js`
+и `admin/admin.js`.
 
 ## 📌 Скачивание бинарников (через Google Drive)
 
@@ -207,15 +208,14 @@ if (allowed.includes(origin)) {
 }
 ```
 
-## 📌 Stripe (когда будете готовы)
+## 📌 Покупка лицензий (сейчас — заглушка)
 
-В `index.html` кнопки «Купить Personal» и «Купить Pro» ведут на `https://buy.stripe.com/YOUR_PERSONAL_LINK` — это placeholder.
-
-**Что нужно сделать:**
-1. Создайте в Stripe Dashboard три продукта (Personal $99, Pro $299, Educational $0)
-2. Для каждого создайте Payment Link (Stripe генерирует URL вида `https://buy.stripe.com/...`)
-3. В `index.html` замените `YOUR_PERSONAL_LINK` и `YOUR_PRO_LINK` на реальные ссылки
-4. Настройте webhook в Stripe на ваш `license_server` (см. `DEPLOY_LICENSE.md`)
+Онлайн-оплата пока не подключена. В `index.html` кнопки «Купить Personal»
+и «Купить Pro» ведут на `mailto:sales@aeroopt.app` (покупатель пишет на
+почту, вы выдаёте ключ вручную через админку `/admin/`). Когда выберете
+платёжную систему — заменим mailto на платёжные ссылки и подключим
+авто-выдачу ключей (вебхук `/v1/stripe_webhook` в воркере уже готов,
+сейчас он «спящий» без секрета).
 
 ## 📌 Проверка перед запуском
 
@@ -225,7 +225,7 @@ if (allowed.includes(origin)) {
 - [ ] Все ссылки на страницах работают
 - [ ] Формы в личном кабинете не падают
 - [ ] Скачивание бинарников работает (если залили в R2)
-- [ ] Stripe-кнопки ведут на реальные checkout-ссылки
+- [ ] Кнопки покупки ведут на sales@aeroopt.app (онлайн-оплата позже)
 - [ ] License-сервер отвечает на `/v1/account_info`
 - [ ] `API_BASE` в `portal.js` указывает на правильный URL
 
@@ -234,6 +234,6 @@ if (allowed.includes(origin)) {
 - Cloudflare Pages: **бесплатно** (unlimited bandwidth)
 - Cloudflare Workers + D1: **бесплатно** до 100K req/day и 5GB
 - Кастомный домен: $10-30/год (зависит от TLD)
-- Stripe: 2.9% + $0.30 за транзакцию
 
-Итого: **$10-30/год** + комиссия Stripe.
+Итого: **$10-30/год**. Комиссия платёжной системы появится вместе
+с онлайн-оплатой.
