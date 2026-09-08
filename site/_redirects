@@ -1,0 +1,12 @@
+# Clean URLs for Cloudflare Pages.
+# Cloudflare usually handles pretty URLs automatically, but these explicit
+# rewrites make `/account`, `/admin`, `/docs/quickstart`, etc. reliable.
+/account /account/index.html 200
+/admin /admin/index.html 200
+/docs/gpu /docs/gpu.html 200
+/docs/mesh /docs/mesh.html 200
+/docs/optimization /docs/optimization.html 200
+/docs/quickstart /docs/quickstart.html 200
+/docs/troubleshooting /docs/troubleshooting.html 200
+/legal/privacy /legal/privacy.html 200
+/legal/terms /legal/terms.html 200

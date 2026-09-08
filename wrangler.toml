@@ -1,0 +1,9 @@
+# Cloudflare Pages configuration for the static AeroOpt website.
+#
+# The repository also contains a separate Worker in license_server/ with its own
+# wrangler.toml. Keep the Worker build root set to `license_server`.
+# For the Pages project connected to this repository, the published static files
+# live in `site/`, not in the repository root.
+name = "aeroopt-site"
+pages_build_output_dir = "site"
+compatibility_date = "2024-09-01"

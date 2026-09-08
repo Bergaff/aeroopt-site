@@ -1145,7 +1145,25 @@ export default {
         const path = url.pathname;
 
         try {
-            if (path === '/healthz') return ok({ status: 'ok', version: '4.1.0' });
+            if (path === '/') {
+                return ok({
+                    service: 'AeroOpt License Server',
+                    status: 'ok',
+                    version: env.APP_VERSION || '4.1.0',
+                    health: '/healthz',
+                    endpoints: [
+                        'POST /v1/activate',
+                        'POST /v1/heartbeat',
+                        'POST /v1/deactivate',
+                        'POST /v1/run_token',
+                        'POST /v1/check_update',
+                        'POST /v1/account_info',
+                    ],
+                });
+            }
+            if (path === '/healthz') {
+                return ok({ status: 'ok', version: env.APP_VERSION || '4.1.0' });
+            }
 
             // Ленивая миграция схемы под текущую базу (один раз на изолят).
             await ensureSchema(env);
