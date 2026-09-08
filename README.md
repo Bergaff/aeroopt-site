@@ -46,8 +46,13 @@ git push -u origin main
 4. Build settings:
    - Framework preset: None
    - Build command: (пусто)
-   - Build output directory: `/`
+   - Build output directory: `site`
+   - Root directory: (пусто / repository root)
 5. Save and Deploy
+
+> Важно: HTML сайта лежит в папке `site/`. Если в Pages поставить output
+> directory `/` или корень репозитория, Cloudflare не найдёт главную
+> `index.html`, и сайт будет выглядеть как сломанный после мержа.
 
 Через 1-2 минуты сайт будет доступен на `https://aeroopt-site.pages.dev`.
 

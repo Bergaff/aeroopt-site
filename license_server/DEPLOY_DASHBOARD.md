@@ -61,7 +61,10 @@ VALUES
 > `license_server`, Deploy command — на `npx wrangler deploy`
 > (или вообще очистите deploy/build команды — при Root directory
 > `license_server` Cloudflare сам найдёт `wrangler.toml` и задеплоит).
-> Production branch: `arena/01a04770-aeroopt-site` (уже стоит правильно).
+> Production branch для боевого деплоя обычно должен быть `main`. Старую
+> ветку `arena/01a04770-aeroopt-site` оставляйте только если сознательно
+> хотите деплоить именно её; после мержа в `main` лучше переключить на
+> `main`, иначе Cloudflare не будет видеть новые коммиты main.
 
 Перед этим проверьте ID базы: откройте свою D1 базу в дашборде,
 скопируйте её Database ID и убедитесь, что в
@@ -131,6 +134,9 @@ https://aeroopt-license-server.<ваш-сабдомен>.workers.dev/healthz
 ```
 
 Должно вернуться: `{"ok":true,"status":"ok","version":"4.1.0"}`.
+Корень воркера `/` теперь тоже отвечает диагностическим JSON. Но основной
+сайт должен открываться на Pages-домене (`aeroopt-site.pages.dev` или
+`aeroopt.app`), а не на Workers-домене.
 
 Дальше откройте админку сайта (страница `/admin/`) и войдите по
 `ADMIN_TOKEN`: выдайте тестовый ключ кнопкой **«Выдать ключ»** —
